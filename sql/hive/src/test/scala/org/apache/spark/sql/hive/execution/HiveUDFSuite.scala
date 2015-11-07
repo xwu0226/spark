@@ -28,7 +28,6 @@ import org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectIn
 import org.apache.hadoop.hive.serde2.objectinspector.{ObjectInspector, ObjectInspectorFactory}
 import org.apache.hadoop.hive.serde2.{AbstractSerDe, SerDeStats}
 import org.apache.hadoop.io.Writable
-import org.apache.spark.sql.test.SQLTestUtils
 import org.apache.spark.sql.{AnalysisException, QueryTest, Row, SQLConf}
 import org.apache.spark.sql.hive.test.TestHiveSingleton
 
@@ -45,7 +44,7 @@ case class ListStringCaseClass(l: Seq[String])
 /**
  * A test suite for Hive custom UDFs.
  */
-class HiveUDFSuite extends QueryTest with TestHiveSingleton with SQLTestUtils{
+class HiveUDFSuite extends QueryTest with TestHiveSingleton {
 
   import hiveContext.{udf, sql}
   import hiveContext.implicits._
@@ -417,7 +416,7 @@ class HiveUDFSuite extends QueryTest with TestHiveSingleton with SQLTestUtils{
     assert(sql("SELECT input_file_name() as file FROM internal_parquet_tmp").distinct().collect().length == 1)
     sql("DROP TABLE internal_parquet_tmp")
 
-
+    /*
     println("======================================")
     println("Non-External parquet pointing to LOCATION")
     withTempPath { dir =>
@@ -432,7 +431,7 @@ class HiveUDFSuite extends QueryTest with TestHiveSingleton with SQLTestUtils{
       assert(sql("SELECT input_file_name() as file FROM non_external_parquet").distinct().collect().length == 1)
       sql("DROP TABLE non_external_parquet")
     }
-
+    */
   }
 
 
