@@ -18,6 +18,7 @@
 package org.apache.spark.sql.hive
 
 import com.google.common.io.Files
+import org.apache.spark.sql.test.SQLTestData.TestData
 
 import org.apache.spark.util.Utils
 import org.apache.spark.sql.{QueryTest, _}
@@ -62,6 +63,39 @@ class QueryPartitionSuite extends QueryTest with SQLTestUtils with TestHiveSingl
 
       sql("DROP TABLE table_with_partition")
       sql("DROP TABLE createAndInsertTest")
+    }
+  }
+
+  test("SPARK-10673"){
+    withSQLConf((SQLConf.HIVE_VERIFY_PARTITION_PATH.key, "true")) {
+      val toReset = hiveContext.getConf("hive.exec.dynamic.partition.mode")
+      hiveContext.setConf("hive.exec.dynamic.partition.mode", "nostrict")
+      try {
+        val tmpDir = Files.createTempDir()
+        sql( s"""create table SPARK_10673 (data int)
+        partitioned by (year int, month int)
+        row format delimited fields terminated by \",\"
+        LOCATION '${tmpDir.toURI.toString}'""".stripMargin)
+
+        val df1 = sql("select 1, 2015, 1")
+        df1.write.partitionBy("year", "month").mode(SaveMode.Append).saveAsTable("SPARK_10673")
+        val df2 = sql("select 2, 2015, 2")
+        df2.write.partitionBy("year", "month").mode(SaveMode.Append).saveAsTable("SPARK_10673")
+        val df3 = sql("select 3, 2014, 1")
+        df3.write.partitionBy("year", "month").mode(SaveMode.Append).saveAsTable("SPARK_10673")
+        val df4 = sql("select 4, 2014, 2")
+        df4.write.partitionBy("year", "month").mode(SaveMode.Append).saveAsTable("SPARK_10673")
+        val df5 = sql("select 5, 2013, 1")
+        df5.write.partitionBy("year", "month").mode(SaveMode.Append).saveAsTable("SPARK_10673")
+
+        assert(sql("select * from SPARK_10673  where year=2015").collect().size === 2)
+        assert(sql("select * from SPARK_10673  where month=1").collect().size === 3)
+        assert(sql("select * from SPARK_10673  where year=2015 and month=2").collect().size === 1)
+
+        sql("DROP TABLE SPARK_10673")
+      } finally{
+          hiveContext.setConf("hive.exec.dynamic.partition.mode", toReset)
+      }
     }
   }
 }
