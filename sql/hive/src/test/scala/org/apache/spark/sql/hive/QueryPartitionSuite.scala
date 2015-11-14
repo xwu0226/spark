@@ -18,7 +18,6 @@
 package org.apache.spark.sql.hive
 
 import com.google.common.io.Files
-import org.apache.spark.sql.test.SQLTestData.TestData
 
 import org.apache.spark.util.Utils
 import org.apache.spark.sql.{QueryTest, _}

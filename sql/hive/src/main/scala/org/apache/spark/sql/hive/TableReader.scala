@@ -154,8 +154,6 @@ class HadoopTableReader(
       if (!sc.conf.verifyPartitionPath) {
         partitionToDeserializer
       } else {
-        var existPathSet = collection.mutable.Set[String]()
-        var pathPatternSet = collection.mutable.Set[String]()
         partitionToDeserializer.filter {
           case (partition, partDeserializer) =>
             val partPath = partition.getDataLocation
