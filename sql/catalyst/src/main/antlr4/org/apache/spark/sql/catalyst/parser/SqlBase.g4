@@ -115,7 +115,8 @@ statement
     | EXPLAIN explainOption* statement                                 #explain
     | SHOW TABLES ((FROM | IN) db=identifier)?
         (LIKE? pattern=STRING)?                                        #showTables
-    | SHOW DATABASES (LIKE pattern=STRING)?                            #showDatabases
+    | SHOW DATABASES (LIKE pattern=STRING)?
+      SHOW CREATE TABLE tableIdentifier                                #showDatabases
     | SHOW FUNCTIONS (LIKE? (qualifiedName | pattern=STRING))?         #showFunctions
     | (DESC | DESCRIBE) FUNCTION EXTENDED? qualifiedName               #describeFunction
     | (DESC | DESCRIBE) option=(EXTENDED | FORMATTED)?
