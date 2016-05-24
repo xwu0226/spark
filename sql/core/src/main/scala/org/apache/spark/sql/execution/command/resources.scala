@@ -69,14 +69,7 @@ case class ListFilesCommand(files: Seq[String] = Seq.empty[String]) extends Runn
           case null | "local" => new File(f).getCanonicalFile.toURI.toString
           case _ => f
         }
-
-        // In a non-local mode, ADD FILE command will generate the path via rpcEnv fileserver
-        val realPath = if (!sparkSession.sparkContext.isLocal && uri.getScheme == "file") {
-          sparkSession.sparkContext.env.rpcEnv.fileServer.addFile(new File(uri.getPath))
-        } else {
-          schemeCorrectedPath
-        }
-        new Path(realPath).toUri.toString
+        new Path(schemeCorrectedPath).toUri.toString
       }.collect {
         case f if fileList.contains(f) => f
       }.map(Row(_))
