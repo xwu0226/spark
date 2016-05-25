@@ -17,10 +17,13 @@
 
 package org.apache.spark.sql.execution.datasources.csv
 
+import java.nio.charset.{Charset, StandardCharsets}
+
 import scala.util.control.NonFatal
 
 import org.apache.hadoop.fs.Path
-import org.apache.hadoop.io.{NullWritable, Text}
+import org.apache.hadoop.io.{LongWritable, NullWritable, Text}
+import org.apache.hadoop.mapred.TextInputFormat
 import org.apache.hadoop.mapreduce.RecordWriter
 import org.apache.hadoop.mapreduce.TaskAttemptContext
 import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat
@@ -140,6 +143,73 @@ object CSVRelation extends Logging {
       }
 
       if (nonEmptyLines.hasNext) nonEmptyLines.drop(1)
+    }
+  }
+
+  def baseRdd(
+      sparkSession: SparkSession,
+      options: CSVOptions,
+      inputPaths: Seq[String]): RDD[String] = {
+    readText(sparkSession, options, inputPaths.mkString(","))
+  }
+
+  def tokenRdd(
+      sparkSession: SparkSession,
+      options: CSVOptions,
+      header: Array[String],
+      inputPaths: Seq[String]): RDD[Array[String]] = {
+    val rdd = baseRdd(sparkSession, options, inputPaths)
+    // Make sure firstLine is materialized before sending to executors
+    val firstLine = if (options.headerFlag) findFirstLine(options, rdd) else null
+    CSVRelation.univocityTokenizer(rdd, header, firstLine, options)
+  }
+
+  def tokenRdd(
+      options: CSVOptions,
+      header: Array[String],
+      rdd: RDD[String]): RDD[Array[String]] = {
+    val firstLine = if (options.headerFlag) findFirstLine(options, rdd) else null
+    CSVRelation.univocityTokenizer(rdd, header, firstLine, options)
+  }
+
+  /**
+   * Returns the first line of the first non-empty file in path
+   */
+  def findFirstLine(options: CSVOptions, rdd: RDD[String]): String = {
+    if (options.isCommentSet) {
+      val comment = options.comment.toString
+      rdd.filter { line =>
+        line.trim.nonEmpty && !line.startsWith(comment)
+      }.first()
+    } else {
+      rdd.filter { line =>
+        line.trim.nonEmpty
+      }.first()
+    }
+  }
+
+  def readText(
+      sparkSession: SparkSession,
+      options: CSVOptions,
+      location: String): RDD[String] = {
+    if (Charset.forName(options.charset) == StandardCharsets.UTF_8) {
+      sparkSession.sparkContext.textFile(location)
+    } else {
+      val charset = options.charset
+      sparkSession.sparkContext
+        .hadoopFile[LongWritable, Text, TextInputFormat](location)
+        .mapPartitions(_.map(pair => new String(pair._2.getBytes, 0, pair._2.getLength, charset)))
+    }
+  }
+
+  def verifySchema(schema: StructType): Unit = {
+    schema.foreach { field =>
+      field.dataType match {
+        case _: ArrayType | _: MapType | _: StructType =>
+          throw new UnsupportedOperationException(
+            s"CSV data source does not support ${field.dataType.simpleString} data type.")
+        case _ =>
+      }
     }
   }
 }
