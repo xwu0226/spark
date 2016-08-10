@@ -134,6 +134,43 @@ object JdbcUtils extends Logging {
   }
 
   /**
+   * Returns a PreparedStatement that does Merge table (UPDATE/INSERT)
+   */
+  def upsertStatement(
+      conn: Connection,
+      table: String,
+      rddSchema: StructType,
+      dialect: JdbcDialect,
+      primKey: StructType)
+      : PreparedStatement = {
+    val onClause = primKey.fields.map { x =>
+      val quotedColumnName = dialect.quoteIdentifier(x.name)
+      s"T.${quotedColumnName} = S.${quotedColumnName}"
+    }.mkString(" AND ")
+    val updateClause = rddSchema.fields.filterNot(primKey.fields.contains(_)).map {x =>
+      val quotedColumnName = dialect.quoteIdentifier(x.name)
+      s"T.${quotedColumnName} = S.${quotedColumnName}"
+    }.mkString(", ")
+    val insertColumns = rddSchema.fields.map {x =>
+      s"T.${dialect.quoteIdentifier(x.name)}"
+    }.mkString(", ")
+    val insertValues = rddSchema.fields.map {x =>
+      s"S.${dialect.quoteIdentifier(x.name)}"
+    }.mkString(", ")
+    val placeholders = rddSchema.fields.map(_ => "?").mkString(",")
+    val sql =
+      s"""
+         |MERGE INTO $table AS T
+         |USING SELECT * FROM VALUES ( $placeholders ) AS S
+         |ON ($onClause)
+         |WHEN MATCHED THEN UPDATE SET $updateClause
+         |WHEN NOT MATCHED THEN INSERT ($insertColumns)
+         |VALUES($insertValues)
+       """.stripMargin
+    conn.prepareStatement(sql)
+  }
+
+  /**
    * Retrieve standard jdbc types.
    *
    * @param dt The datatype (e.g. [[org.apache.spark.sql.types.StringType]])
@@ -587,37 +624,41 @@ object JdbcUtils extends Logging {
         conn.setAutoCommit(false) // Everything in the same db transaction.
         conn.setTransactionIsolation(finalIsolationLevel)
       }
-      val stmt = insertStatement(conn, table, rddSchema, dialect)
-      val setters: Array[JDBCValueSetter] = rddSchema.fields.map(_.dataType)
-        .map(makeSetter(conn, dialect, _)).toArray
-      val numFields = rddSchema.fields.length
+      if (upsert) {
+        val stmt = upsertStatement(conn, table, rddSchema, dialect)
 
-      try {
-        var rowCount = 0
-        while (iterator.hasNext) {
-          val row = iterator.next()
-          var i = 0
-          while (i < numFields) {
-            if (row.isNullAt(i)) {
-              stmt.setNull(i + 1, nullTypes(i))
-            } else {
-              setters(i).apply(stmt, row, i)
+      } else {
+        val stmt = insertStatement(conn, table, rddSchema, dialect)
+        val setters: Array[JDBCValueSetter] = rddSchema.fields.map(_.dataType)
+          .map(makeSetter(conn, dialect, _)).toArray
+        val numFields = rddSchema.fields.length
+
+        try {
+          var rowCount = 0
+          while (iterator.hasNext) {
+            val row = iterator.next()
+            var i = 0
+            while (i < numFields) {
+              if (row.isNullAt(i)) {
+                stmt.setNull(i + 1, nullTypes(i))
+              } else {
+                setters(i).apply(stmt, row, i)
+              }
+              i = i + 1
             }
-            i = i + 1
+            stmt.addBatch()
+            rowCount += 1
+            if (rowCount % batchSize == 0) {
+              stmt.executeBatch()
+              rowCount = 0
+            }
           }
-          stmt.addBatch()
-          rowCount += 1
-          if (rowCount % batchSize == 0) {
+          if (rowCount > 0) {
             stmt.executeBatch()
-            rowCount = 0
           }
+        } finally {
+          stmt.close()
         }
-        if (rowCount > 0) {
-          stmt.executeBatch()
-        }
-      } finally {
-        stmt.close()
-      }
       if (supportsTransactions) {
         conn.commit()
       }
