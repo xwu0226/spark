@@ -141,13 +141,17 @@ object JdbcUtils extends Logging {
       table: String,
       rddSchema: StructType,
       dialect: JdbcDialect,
-      primKey: StructType)
+      primKeyCols: Array[String])
       : PreparedStatement = {
-    val onClause = primKey.fields.map { x =>
-      val quotedColumnName = dialect.quoteIdentifier(x.name)
+    val product = conn.getMetaData.getDatabaseProductName
+    val sourceColumns = rddSchema.fields.map {x =>
+      s"${dialect.quoteIdentifier(x.name)}"
+    }.mkString(", ")
+    val onClause = primKeyCols.map { c =>
+      val quotedColumnName = dialect.quoteIdentifier(c)
       s"T.${quotedColumnName} = S.${quotedColumnName}"
     }.mkString(" AND ")
-    val updateClause = rddSchema.fields.filterNot(primKey.fields.contains(_)).map {x =>
+    val updateClause = rddSchema.fields.filterNot(primKeyCols.contains(_)).map {x =>
       val quotedColumnName = dialect.quoteIdentifier(x.name)
       s"T.${quotedColumnName} = S.${quotedColumnName}"
     }.mkString(", ")
@@ -161,7 +165,7 @@ object JdbcUtils extends Logging {
     val sql =
       s"""
          |MERGE INTO $table AS T
-         |USING SELECT * FROM VALUES ( $placeholders ) AS S
+         |USING TABLE(VALUES ( $placeholders )) AS S ($sourceColumns)
          |ON ($onClause)
          |WHEN MATCHED THEN UPDATE SET $updateClause
          |WHEN NOT MATCHED THEN INSERT ($insertColumns)
@@ -406,7 +410,7 @@ object JdbcUtils extends Logging {
         val bytes = rs.getBytes(pos + 1)
         var ans = 0L
         var j = 0
-        while (j < bytes.length) {
+        while (j < bytes.size) {
           ans = 256 * ans + (255 & bytes(j))
           j = j + 1
         }
@@ -624,41 +628,52 @@ object JdbcUtils extends Logging {
         conn.setAutoCommit(false) // Everything in the same db transaction.
         conn.setTransactionIsolation(finalIsolationLevel)
       }
-      if (upsert) {
-        val stmt = upsertStatement(conn, table, rddSchema, dialect)
-
-      } else {
-        val stmt = insertStatement(conn, table, rddSchema, dialect)
-        val setters: Array[JDBCValueSetter] = rddSchema.fields.map(_.dataType)
-          .map(makeSetter(conn, dialect, _)).toArray
-        val numFields = rddSchema.fields.length
-
+      val stmt = if (upsert) {
+        // get the primary key
+        val pkRS = conn.getMetaData.getPrimaryKeys(null, null, table)
+        var pkCols: Array[String] = Array.empty[String]
         try {
-          var rowCount = 0
-          while (iterator.hasNext) {
-            val row = iterator.next()
-            var i = 0
-            while (i < numFields) {
-              if (row.isNullAt(i)) {
-                stmt.setNull(i + 1, nullTypes(i))
-              } else {
-                setters(i).apply(stmt, row, i)
-              }
-              i = i + 1
-            }
-            stmt.addBatch()
-            rowCount += 1
-            if (rowCount % batchSize == 0) {
-              stmt.executeBatch()
-              rowCount = 0
-            }
-          }
-          if (rowCount > 0) {
-            stmt.executeBatch()
+          while (pkRS.next()) {
+            pkCols = pkCols :+ pkRS.getString("COLUMN_NAME")
           }
         } finally {
-          stmt.close()
+          pkRS.close()
         }
+        upsertStatement(conn, table, rddSchema, dialect, pkCols)
+      } else {
+        insertStatement(conn, table, rddSchema, dialect)
+      }
+      val stmt = insertStatement(conn, table, rddSchema, dialect)
+      val setters: Array[JDBCValueSetter] = rddSchema.fields.map(_.dataType)
+        .map(makeSetter(conn, dialect, _)).toArray
+      val numFields = rddSchema.fields.length
+
+      try {
+        var rowCount = 0
+        while (iterator.hasNext) {
+          val row = iterator.next()
+          var i = 0
+          while (i < numFields) {
+            if (row.isNullAt(i)) {
+              stmt.setNull(i + 1, nullTypes(i))
+            } else {
+              setters(i).apply(stmt, row, i)
+            }
+            i = i + 1
+          }
+          stmt.addBatch()
+          rowCount += 1
+          if (rowCount % batchSize == 0) {
+            stmt.executeBatch()
+            rowCount = 0
+          }
+        }
+        if (rowCount > 0) {
+          stmt.executeBatch()
+        }
+      } finally {
+        stmt.close()
+      }
       if (supportsTransactions) {
         conn.commit()
       }
