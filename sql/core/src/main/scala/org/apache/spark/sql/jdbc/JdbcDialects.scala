@@ -17,7 +17,7 @@
 
 package org.apache.spark.sql.jdbc
 
-import java.sql.Connection
+import java.sql.{Connection, PreparedStatement}
 
 import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.sql.types._
@@ -115,6 +115,21 @@ abstract class JdbcDialect extends Serializable {
    * None: The behavior of TRUNCATE TABLE is unknown (default).
    */
   def isCascadingTruncateTable(): Option[Boolean] = None
+
+  /**
+   * Generate a PreparedStatement that performs UPSERT operation
+   * @param conn The connection object
+   * @param table The target table
+   * @param rddSchema The schema for the table
+   * @return PreparedStatement
+   */
+  def upsertStatement(
+     conn: Connection,
+     table: String,
+     rddSchema: StructType,
+     conditionColumns: Seq[String] = Seq.empty[String]): PreparedStatement = {
+    throw new UnsupportedOperationException("UPSERT operation is not implemented.")
+  }
 }
 
 /**

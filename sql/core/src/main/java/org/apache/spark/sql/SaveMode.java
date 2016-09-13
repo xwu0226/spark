@@ -51,12 +51,5 @@ public enum SaveMode {
    *
    * @since 1.3.0
    */
-  Ignore,
-  /**
-   * Upsert mode means that when saving a DataFrame to a data source, if a row already exists in the
-   * target table based on the primary key, update the rows, otherwise, insert as a new row
-   * @since 2.1.0
-   */
-  Upsert
-
+  Ignore
 }

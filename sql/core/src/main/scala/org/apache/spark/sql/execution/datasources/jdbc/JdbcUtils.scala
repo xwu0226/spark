@@ -134,47 +134,6 @@ object JdbcUtils extends Logging {
   }
 
   /**
-   * Returns a PreparedStatement that does Merge table (UPDATE/INSERT)
-   */
-  def upsertStatement(
-      conn: Connection,
-      table: String,
-      rddSchema: StructType,
-      dialect: JdbcDialect,
-      primKeyCols: Array[String])
-      : PreparedStatement = {
-    val product = conn.getMetaData.getDatabaseProductName
-    val sourceColumns = rddSchema.fields.map {x =>
-      s"${dialect.quoteIdentifier(x.name)}"
-    }.mkString(", ")
-    val onClause = primKeyCols.map { c =>
-      val quotedColumnName = dialect.quoteIdentifier(c)
-      s"T.${quotedColumnName} = S.${quotedColumnName}"
-    }.mkString(" AND ")
-    val updateClause = rddSchema.fields.filterNot(primKeyCols.contains(_)).map {x =>
-      val quotedColumnName = dialect.quoteIdentifier(x.name)
-      s"T.${quotedColumnName} = S.${quotedColumnName}"
-    }.mkString(", ")
-    val insertColumns = rddSchema.fields.map {x =>
-      s"T.${dialect.quoteIdentifier(x.name)}"
-    }.mkString(", ")
-    val insertValues = rddSchema.fields.map {x =>
-      s"S.${dialect.quoteIdentifier(x.name)}"
-    }.mkString(", ")
-    val placeholders = rddSchema.fields.map(_ => "?").mkString(",")
-    val sql =
-      s"""
-         |MERGE INTO $table AS T
-         |USING TABLE(VALUES ( $placeholders )) AS S ($sourceColumns)
-         |ON ($onClause)
-         |WHEN MATCHED THEN UPDATE SET $updateClause
-         |WHEN NOT MATCHED THEN INSERT ($insertColumns)
-         |VALUES($insertValues)
-       """.stripMargin
-    conn.prepareStatement(sql)
-  }
-
-  /**
    * Retrieve standard jdbc types.
    *
    * @param dt The datatype (e.g. [[org.apache.spark.sql.types.StringType]])
@@ -590,7 +549,10 @@ object JdbcUtils extends Logging {
       nullTypes: Array[Int],
       batchSize: Int,
       dialect: JdbcDialect,
-      isolationLevel: Int): Iterator[Byte] = {
+      isolationLevel: Int,
+      props: Properties,
+      onConditionCols: Seq[String] = Seq.empty[String]): Iterator[Byte] = {
+
     require(batchSize >= 1,
       s"Invalid value `${batchSize.toString}` for parameter " +
       s"`${JdbcUtils.JDBC_BATCH_INSERT_SIZE}`. The minimum value is 1.")
@@ -628,18 +590,8 @@ object JdbcUtils extends Logging {
         conn.setAutoCommit(false) // Everything in the same db transaction.
         conn.setTransactionIsolation(finalIsolationLevel)
       }
-      val stmt = if (upsert) {
-        // get the primary key
-        val pkRS = conn.getMetaData.getPrimaryKeys(null, null, table)
-        var pkCols: Array[String] = Array.empty[String]
-        try {
-          while (pkRS.next()) {
-            pkCols = pkCols :+ pkRS.getString("COLUMN_NAME")
-          }
-        } finally {
-          pkRS.close()
-        }
-        upsertStatement(conn, table, rddSchema, dialect, pkCols)
+      val stmt = if (props.getProperty("upsert") == "true") {
+        dialect.upsertStatement(conn, table, rddSchema, onConditionCols)
       } else {
         insertStatement(conn, table, rddSchema, dialect)
       }
@@ -732,7 +684,8 @@ object JdbcUtils extends Logging {
       df: DataFrame,
       url: String,
       table: String,
-      properties: Properties) {
+      properties: Properties,
+      onConditionCols: Seq[String] = Seq.empty[String]) {
     val dialect = JdbcDialects.get(url)
     val nullTypes: Array[Int] = df.schema.fields.map { field =>
       getJdbcType(field.dataType, dialect).jdbcNullType
@@ -750,7 +703,8 @@ object JdbcUtils extends Logging {
         case "SERIALIZABLE" => Connection.TRANSACTION_SERIALIZABLE
       }
     df.foreachPartition(iterator => savePartition(
-      getConnection, table, iterator, rddSchema, nullTypes, batchSize, dialect, isolationLevel)
+      getConnection, table, iterator, rddSchema, nullTypes, batchSize,
+      dialect, isolationLevel, properties, onConditionCols)
     )
   }
 }

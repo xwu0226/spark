@@ -154,7 +154,7 @@ case class CreateDataSourceTableAsSelectCommand(
         case SaveMode.Ignore =>
           // Since the table already exists and the save mode is Ignore, we will just return.
           return Seq.empty[Row]
-        case SaveMode.Append | SaveMode.Upsert =>
+        case SaveMode.Append =>
           // Check if the specified data source match the data source of the existing table.
           val dataSource = DataSource(
             sparkSession = sparkSession,
