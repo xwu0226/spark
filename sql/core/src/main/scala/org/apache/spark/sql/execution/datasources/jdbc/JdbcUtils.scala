@@ -595,7 +595,6 @@ object JdbcUtils extends Logging {
       } else {
         insertStatement(conn, table, rddSchema, dialect)
       }
-      val stmt = insertStatement(conn, table, rddSchema, dialect)
       val setters: Array[JDBCValueSetter] = rddSchema.fields.map(_.dataType)
         .map(makeSetter(conn, dialect, _)).toArray
       val numFields = rddSchema.fields.length

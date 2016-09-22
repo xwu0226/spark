@@ -26,7 +26,6 @@ import org.scalatest._
 import org.apache.spark.tags.DockerTest
 
 @DockerTest
-@Ignore // AMPLab Jenkins needs to be updated before shared memory works on docker
 class DB2IntegrationSuite extends DockerJDBCIntegrationSuite {
   override val db = new DatabaseOnDocker {
     override val imageName = "lresende/db2express-c:10.5.0.5-3.10.0"
@@ -60,6 +59,11 @@ class DB2IntegrationSuite extends DockerJDBCIntegrationSuite {
       .executeUpdate()
     conn.prepareStatement("INSERT INTO strings VALUES ('the', 'quick', 'brown', BLOB('fox'))")
       .executeUpdate()
+    conn.prepareStatement("CREATE TABLE UPSERT (c1 INTEGER, c2 INTEGER, c3 INTEGER)")
+      .executeUpdate()
+    conn.prepareStatement("INSERT INTO UPSERT VALUES (1, 2, 3), (2, 3, 4), (3, 4, 5)")
+      .executeUpdate()
+
   }
 
   test("Basic test") {
@@ -130,5 +134,23 @@ class DB2IntegrationSuite extends DockerJDBCIntegrationSuite {
     // df1.write.jdbc(jdbcUrl, "numberscopy", new Properties)
     df2.write.jdbc(jdbcUrl, "datescopy", new Properties)
     df3.write.jdbc(jdbcUrl, "stringscopy", new Properties)
+  }
+
+  test("Upsert test") {
+    import testImplicits._
+    val df1 = Seq((1, 3, 6), (4, 5, 6)).toDF("c1", "c2", "c3")
+    df1.write.mode(org.apache.spark.sql.SaveMode.Append).option("upsert", true)
+      .jdbc(jdbcUrl, "UPSERT", new Properties, "c1"::Nil)
+
+    val df = spark.read.jdbc(jdbcUrl, "UPSERT", new Properties())
+    assert(df.filter("c1=1").collect.head.getInt(1) == 3)
+    assert(df.filter("c1=1").collect.head.getInt(2) == 6)
+    assert(df.filter("c1=4").collect.size == 1)
+
+    val df2 = Seq((2, 3, 10)).toDF("c1", "c2", "c3")
+    df2.write.mode(org.apache.spark.sql.SaveMode.Append).option("upsert", true)
+      .jdbc(jdbcUrl, "UPSERT", new Properties, "c1"::"c2"::Nil)
+    val df3 = spark.read.jdbc(jdbcUrl, "UPSERT", new Properties())
+    assert(df3.filter("c1=2").collect.head.getInt(2) == 10)
   }
 }

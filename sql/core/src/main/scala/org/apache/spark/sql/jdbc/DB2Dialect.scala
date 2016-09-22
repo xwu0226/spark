@@ -44,28 +44,16 @@ private object DB2Dialect extends JdbcDialect {
     require(conditionColumns.nonEmpty,
       "Upsert mode requires column names on which duplicate rows are identified.")
 
-    val sourceColumns = rddSchema.fields.map { x =>
-      s"${this.quoteIdentifier(x.name)}"
-    }.mkString(", ")
+    val sourceColumns = rddSchema.fields.map { x => s"${x.name}"}.mkString(", ")
 
-    val onClause = conditionColumns.map { c =>
-      val quotedColumnName = this.quoteIdentifier(c)
-      s"T.${quotedColumnName} = S.${quotedColumnName}"
-    }.mkString(" AND ")
+    val onClause = conditionColumns.map { c => s"T.$c= S.$c" }.mkString(" AND ")
 
     val updateClause = rddSchema.fields.map(_.name).filterNot(conditionColumns.contains(_)).
-      map { x =>
-        val quotedColumnName = this.quoteIdentifier(x)
-        s"T.${quotedColumnName} = S.${quotedColumnName}"
-      }.mkString(", ")
+      map { x => s"T.$x = S.$x" }.mkString(", ")
 
-    val insertColumns = rddSchema.fields.map { x =>
-      s"T.${this.quoteIdentifier(x.name)}"
-    }.mkString(", ")
+    val insertColumns = rddSchema.fields.map { x => s"T.${x.name}"}.mkString(", ")
 
-    val insertValues = rddSchema.fields.map { x =>
-      s"S.${this.quoteIdentifier(x.name)}"
-    }.mkString(", ")
+    val insertValues = rddSchema.fields.map { x => s"S.${x.name}" }.mkString(", ")
 
     val placeholders = rddSchema.fields.map(_ => "?").mkString(",")
     val sql =
@@ -77,6 +65,7 @@ private object DB2Dialect extends JdbcDialect {
          |WHEN NOT MATCHED THEN INSERT ($insertColumns)
          |VALUES($insertValues)
        """.stripMargin
+    print(s"\nSQL: ${sql}\n")
     conn.prepareStatement(sql)
   }
 }
