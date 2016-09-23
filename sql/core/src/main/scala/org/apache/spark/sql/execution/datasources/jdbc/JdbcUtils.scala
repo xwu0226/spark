@@ -369,7 +369,7 @@ object JdbcUtils extends Logging {
         val bytes = rs.getBytes(pos + 1)
         var ans = 0L
         var j = 0
-        while (j < bytes.size) {
+        while (j < bytes.length) {
           ans = 256 * ans + (255 & bytes(j))
           j = j + 1
         }
@@ -550,8 +550,7 @@ object JdbcUtils extends Logging {
       batchSize: Int,
       dialect: JdbcDialect,
       isolationLevel: Int,
-      props: Properties,
-      onConditionCols: Seq[String] = Seq.empty[String]): Iterator[Byte] = {
+      props: Properties): Iterator[Byte] = {
 
     require(batchSize >= 1,
       s"Invalid value `${batchSize.toString}` for parameter " +
@@ -591,7 +590,7 @@ object JdbcUtils extends Logging {
         conn.setTransactionIsolation(finalIsolationLevel)
       }
       val stmt = if (props.getProperty("upsert") == "true") {
-        dialect.upsertStatement(conn, table, rddSchema, onConditionCols)
+        dialect.upsertStatement(conn, table, rddSchema, props)
       } else {
         insertStatement(conn, table, rddSchema, dialect)
       }
@@ -683,8 +682,7 @@ object JdbcUtils extends Logging {
       df: DataFrame,
       url: String,
       table: String,
-      properties: Properties,
-      onConditionCols: Seq[String] = Seq.empty[String]) {
+      properties: Properties) {
     val dialect = JdbcDialects.get(url)
     val nullTypes: Array[Int] = df.schema.fields.map { field =>
       getJdbcType(field.dataType, dialect).jdbcNullType
@@ -703,7 +701,7 @@ object JdbcUtils extends Logging {
       }
     df.foreachPartition(iterator => savePartition(
       getConnection, table, iterator, rddSchema, nullTypes, batchSize,
-      dialect, isolationLevel, properties, onConditionCols)
+      dialect, isolationLevel, properties)
     )
   }
 }

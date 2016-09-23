@@ -18,6 +18,7 @@
 package org.apache.spark.sql.jdbc
 
 import java.sql.{Connection, PreparedStatement}
+import java.util.Properties
 
 import org.apache.spark.sql.types.{BooleanType, DataType, StringType, StructType}
 
@@ -40,21 +41,18 @@ private object DB2Dialect extends JdbcDialect {
      conn: Connection,
      table: String,
      rddSchema: StructType,
-     conditionColumns: Seq[String] = Seq.empty[String]): PreparedStatement = {
-    require(conditionColumns.nonEmpty,
+     props: Properties): PreparedStatement = {
+    require(props.getProperty("condition_columns").nonEmpty,
       "Upsert mode requires column names on which duplicate rows are identified.")
 
+    val conditionColumns = props.getProperty("condition_columns").split(",").map(_.trim)
     val sourceColumns = rddSchema.fields.map { x => s"${x.name}"}.mkString(", ")
-
     val onClause = conditionColumns.map { c => s"T.$c= S.$c" }.mkString(" AND ")
-
     val updateClause = rddSchema.fields.map(_.name).filterNot(conditionColumns.contains(_)).
       map { x => s"T.$x = S.$x" }.mkString(", ")
 
     val insertColumns = rddSchema.fields.map { x => s"T.${x.name}"}.mkString(", ")
-
     val insertValues = rddSchema.fields.map { x => s"S.${x.name}" }.mkString(", ")
-
     val placeholders = rddSchema.fields.map(_ => "?").mkString(",")
     val sql =
       s"""
