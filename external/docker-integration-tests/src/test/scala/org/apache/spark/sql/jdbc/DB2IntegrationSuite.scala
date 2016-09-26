@@ -139,8 +139,9 @@ class DB2IntegrationSuite extends DockerJDBCIntegrationSuite {
   test("Upsert test") {
     import testImplicits._
     val df1 = Seq((1, 3, 6), (4, 5, 6)).toDF("c1", "c2", "c3")
-    df1.write.mode(org.apache.spark.sql.SaveMode.Append).option("upsert", true)
-      .jdbc(jdbcUrl, "UPSERT", new Properties, "c1"::Nil)
+    df1.write.mode(org.apache.spark.sql.SaveMode.Append)
+      .option("upsert", true).option("condition_columns", "c1")
+      .jdbc(jdbcUrl, "UPSERT", new Properties)
 
     val df = spark.read.jdbc(jdbcUrl, "UPSERT", new Properties())
     assert(df.filter("c1=1").collect.head.getInt(1) == 3)
@@ -148,8 +149,9 @@ class DB2IntegrationSuite extends DockerJDBCIntegrationSuite {
     assert(df.filter("c1=4").collect.size == 1)
 
     val df2 = Seq((2, 3, 10)).toDF("c1", "c2", "c3")
-    df2.write.mode(org.apache.spark.sql.SaveMode.Append).option("upsert", true)
-      .jdbc(jdbcUrl, "UPSERT", new Properties, "c1"::"c2"::Nil)
+    df2.write.mode(org.apache.spark.sql.SaveMode.Append)
+      .option("upsert", true).option("condition_columns", "c1, c2")
+      .jdbc(jdbcUrl, "UPSERT", new Properties)
     val df3 = spark.read.jdbc(jdbcUrl, "UPSERT", new Properties())
     assert(df3.filter("c1=2").collect.head.getInt(2) == 10)
   }

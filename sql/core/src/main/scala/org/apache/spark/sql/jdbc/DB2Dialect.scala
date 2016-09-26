@@ -43,7 +43,7 @@ private object DB2Dialect extends JdbcDialect {
      rddSchema: StructType,
      props: Properties): PreparedStatement = {
     require(props.getProperty("condition_columns").nonEmpty,
-      "Upsert mode requires column names on which duplicate rows are identified.")
+      "Upsert option requires column names on which duplicate rows are identified.")
 
     val conditionColumns = props.getProperty("condition_columns").split(",").map(_.trim)
     val sourceColumns = rddSchema.fields.map { x => s"${x.name}"}.mkString(", ")
@@ -63,7 +63,6 @@ private object DB2Dialect extends JdbcDialect {
          |WHEN NOT MATCHED THEN INSERT ($insertColumns)
          |VALUES($insertValues)
        """.stripMargin
-    print(s"\nSQL: ${sql}\n")
     conn.prepareStatement(sql)
   }
 }
