@@ -59,9 +59,9 @@ class DB2IntegrationSuite extends DockerJDBCIntegrationSuite {
       .executeUpdate()
     conn.prepareStatement("INSERT INTO strings VALUES ('the', 'quick', 'brown', BLOB('fox'))")
       .executeUpdate()
-    conn.prepareStatement("CREATE TABLE UPSERT (c1 INTEGER, c2 INTEGER, c3 INTEGER)")
+    conn.prepareStatement("CREATE TABLE upsertT (c1 INTEGER, c2 INTEGER, c3 INTEGER)")
       .executeUpdate()
-    conn.prepareStatement("INSERT INTO UPSERT VALUES (1, 2, 3), (2, 3, 4), (3, 4, 5)")
+    conn.prepareStatement("INSERT INTO upsertT VALUES (1, 2, 3), (2, 3, 4), (3, 4, 5)")
       .executeUpdate()
 
   }
@@ -138,21 +138,34 @@ class DB2IntegrationSuite extends DockerJDBCIntegrationSuite {
 
   test("Upsert test") {
     import testImplicits._
+
+    // update Row(1, 2, 3) to (1, 3, 6) and insert new Row(4, 5, 6)
     val df1 = Seq((1, 3, 6), (4, 5, 6)).toDF("c1", "c2", "c3")
     df1.write.mode(org.apache.spark.sql.SaveMode.Append)
       .option("upsert", true).option("condition_columns", "c1")
-      .jdbc(jdbcUrl, "UPSERT", new Properties)
+      .jdbc(jdbcUrl, "upsertT", new Properties)
+    val df11 = spark.read.jdbc(jdbcUrl, "upsertT", new Properties())
+    assert(df11.filter("c1=1").collect.head.getInt(1) == 3)
+    assert(df11.filter("c1=1").collect.head.getInt(2) == 6)
+    assert(df11.filter("c1=4").collect.size == 1)
 
-    val df = spark.read.jdbc(jdbcUrl, "UPSERT", new Properties())
-    assert(df.filter("c1=1").collect.head.getInt(1) == 3)
-    assert(df.filter("c1=1").collect.head.getInt(2) == 6)
-    assert(df.filter("c1=4").collect.size == 1)
-
+    // update Row(2, 3, 4) to Row(2, 3, 10) that matches 2 columns
     val df2 = Seq((2, 3, 10)).toDF("c1", "c2", "c3")
     df2.write.mode(org.apache.spark.sql.SaveMode.Append)
       .option("upsert", true).option("condition_columns", "c1, c2")
-      .jdbc(jdbcUrl, "UPSERT", new Properties)
-    val df3 = spark.read.jdbc(jdbcUrl, "UPSERT", new Properties())
-    assert(df3.filter("c1=2").collect.head.getInt(2) == 10)
+      .jdbc(jdbcUrl, "upsertT", new Properties)
+    val df21 = spark.read.jdbc(jdbcUrl, "upsertT", new Properties())
+    assert(df21.filter("c1=2").collect.head.getInt(2) == 10)
+
+    // condition columns are the whole set of the rddSchema columns
+    // Row (2, 3, 10) will be no-op, new Row(10, 10, null) will be inserted
+    val df3 = Seq((2, 3), (10, 10)).toDF("c1", "c2")
+    df3.write.mode(org.apache.spark.sql.SaveMode.Append)
+      .option("upsert", true).option("condition_columns", "c1, c2")
+      .jdbc(jdbcUrl, "upsertT", new Properties)
+
+    val df31 = spark.read.jdbc(jdbcUrl, "upsertT", new Properties())
+    assert(df31.filter("c1=2").collect.size == 1)
+    assert(df31.filter("c1=10").collect.size == 1)
   }
 }

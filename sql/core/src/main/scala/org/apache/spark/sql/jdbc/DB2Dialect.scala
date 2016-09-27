@@ -42,10 +42,16 @@ private object DB2Dialect extends JdbcDialect {
      table: String,
      rddSchema: StructType,
      props: Properties): PreparedStatement = {
-    require(props.getProperty("condition_columns").nonEmpty,
-      "Upsert option requires column names on which duplicate rows are identified.")
+    require(props.getProperty("condition_columns") != null
+      && props.getProperty("condition_columns").nonEmpty,
+      "Upsert option requires column names on which duplicate rows are identified. " +
+        "specify option(\"condition_columns\", \"c1, c2, ...\")")
 
     val conditionColumns = props.getProperty("condition_columns").split(",").map(_.trim)
+    if (!conditionColumns.forall(rddSchema.fieldNames.contains(_))) {
+      throw new IllegalArgumentException(
+        "Condition columns specified should be a subset of the schema in the input dataset.")
+    }
     val sourceColumns = rddSchema.fields.map { x => s"${x.name}"}.mkString(", ")
     val onClause = conditionColumns.map { c => s"T.$c= S.$c" }.mkString(" AND ")
     val updateClause = rddSchema.fields.map(_.name).filterNot(conditionColumns.contains(_)).
@@ -54,7 +60,11 @@ private object DB2Dialect extends JdbcDialect {
     val insertColumns = rddSchema.fields.map { x => s"T.${x.name}"}.mkString(", ")
     val insertValues = rddSchema.fields.map { x => s"S.${x.name}" }.mkString(", ")
     val placeholders = rddSchema.fields.map(_ => "?").mkString(",")
-    val sql =
+
+    // In the case where condition columns are whole set of the rddSchema columns
+    // and rddSchema columns may be a subset of the target table schema.
+    // We need to do nothing for matched rows
+    val sql = if (updateClause != null && updateClause.nonEmpty) {
       s"""
          |MERGE INTO $table AS T
          |USING TABLE(VALUES ( $placeholders )) AS S ($sourceColumns)
@@ -63,6 +73,16 @@ private object DB2Dialect extends JdbcDialect {
          |WHEN NOT MATCHED THEN INSERT ($insertColumns)
          |VALUES($insertValues)
        """.stripMargin
+    } else {
+      s"""
+         |MERGE INTO $table AS T
+         |USING TABLE(VALUES ( $placeholders )) AS S ($sourceColumns)
+         |ON ($onClause)
+         |WHEN NOT MATCHED THEN INSERT ($insertColumns)
+         |VALUES($insertValues)
+         |ELSE IGNORE
+       """.stripMargin
+    }
     conn.prepareStatement(sql)
   }
 }
