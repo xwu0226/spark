@@ -127,8 +127,7 @@ abstract class JdbcDialect extends Serializable {
       conn: Connection,
       table: String,
       rddSchema: StructType,
-      conditionColumns: Array[String] = Array.empty[String]):
-      PreparedStatement = {
+      conditionColumns: Array[String] = Array.empty[String]): PreparedStatement = {
     throw new UnsupportedOperationException("UPSERT operation is not implemented.")
   }
 }
