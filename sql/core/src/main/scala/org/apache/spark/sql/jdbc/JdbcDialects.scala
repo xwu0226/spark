@@ -18,7 +18,6 @@
 package org.apache.spark.sql.jdbc
 
 import java.sql.{Connection, PreparedStatement}
-import java.util.Properties
 
 import org.apache.spark.annotation.DeveloperApi
 import org.apache.spark.sql.types._
@@ -124,7 +123,11 @@ abstract class JdbcDialect extends Serializable {
    * @param rddSchema The schema for the table
    * @return PreparedStatement
    */
-  def upsertStatement(conn: Connection, table: String, rddSchema: StructType, props: Properties):
+  def upsertStatement(
+      conn: Connection,
+      table: String,
+      rddSchema: StructType,
+      conditionColumns: Array[String] = Array.empty[String]):
       PreparedStatement = {
     throw new UnsupportedOperationException("UPSERT operation is not implemented.")
   }

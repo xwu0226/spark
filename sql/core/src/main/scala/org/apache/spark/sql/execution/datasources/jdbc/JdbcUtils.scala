@@ -27,7 +27,7 @@ import scala.util.control.NonFatal
 import org.apache.spark.TaskContext
 import org.apache.spark.executor.InputMetrics
 import org.apache.spark.internal.Logging
-import org.apache.spark.sql.{DataFrame, Row}
+import org.apache.spark.sql.{DataFrame, Row, SaveMode}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.encoders.RowEncoder
 import org.apache.spark.sql.catalyst.expressions.{MutableRow, SpecificMutableRow}
@@ -541,7 +541,7 @@ object JdbcUtils extends Logging {
    * non-Serializable.  Instead, we explicitly close over all variables that
    * are used.
    */
-  def savePartition(
+  private def savePartition(
       getConnection: () => Connection,
       table: String,
       iterator: Iterator[Row],
@@ -550,8 +550,8 @@ object JdbcUtils extends Logging {
       batchSize: Int,
       dialect: JdbcDialect,
       isolationLevel: Int,
-      props: Properties): Iterator[Byte] = {
-
+      isUpsert: Boolean = false,
+      conditionColumns: Array[String] = Array.empty[String]): Iterator[Byte] = {
     require(batchSize >= 1,
       s"Invalid value `${batchSize.toString}` for parameter " +
       s"`${JdbcUtils.JDBC_BATCH_INSERT_SIZE}`. The minimum value is 1.")
@@ -589,8 +589,8 @@ object JdbcUtils extends Logging {
         conn.setAutoCommit(false) // Everything in the same db transaction.
         conn.setTransactionIsolation(finalIsolationLevel)
       }
-      val stmt = if (props.getProperty("upsert") == "true") {
-        dialect.upsertStatement(conn, table, rddSchema, props)
+      val stmt = if (isUpsert) {
+        dialect.upsertStatement(conn, table, rddSchema, conditionColumns)
       } else {
         insertStatement(conn, table, rddSchema, dialect)
       }
@@ -682,6 +682,7 @@ object JdbcUtils extends Logging {
       df: DataFrame,
       url: String,
       table: String,
+      mode: SaveMode,
       properties: Properties) {
     val dialect = JdbcDialects.get(url)
     val nullTypes: Array[Int] = df.schema.fields.map { field =>
@@ -699,9 +700,11 @@ object JdbcUtils extends Logging {
         case "REPEATABLE_READ" => Connection.TRANSACTION_REPEATABLE_READ
         case "SERIALIZABLE" => Connection.TRANSACTION_SERIALIZABLE
       }
+    val upsert = (mode == SaveMode.Append) && properties.getProperty("upsert", "false") == "true"
+    val conditionColumns = properties.getProperty("condition_columns", "").split(",").map(_.trim)
     df.foreachPartition(iterator => savePartition(
       getConnection, table, iterator, rddSchema, nullTypes, batchSize,
-      dialect, isolationLevel, properties)
+      dialect, isolationLevel, upsert, conditionColumns)
     )
   }
 }

@@ -18,7 +18,6 @@
 package org.apache.spark.sql.jdbc
 
 import java.sql.{Connection, PreparedStatement}
-import java.util.Properties
 
 import org.apache.spark.sql.types.{BooleanType, DataType, StringType, StructType}
 
@@ -41,33 +40,33 @@ private object DB2Dialect extends JdbcDialect {
      conn: Connection,
      table: String,
      rddSchema: StructType,
-     props: Properties): PreparedStatement = {
-    require(props.getProperty("condition_columns") != null
-      && props.getProperty("condition_columns").nonEmpty,
+     conditionColumns: Array[String] = Array.empty[String]): PreparedStatement = {
+    require(conditionColumns.nonEmpty,
       "Upsert option requires column names on which duplicate rows are identified. " +
-        "specify option(\"condition_columns\", \"c1, c2, ...\")")
+        "Please specify option(\"condition_columns\", \"c1, c2, ...\")")
 
-    val conditionColumns = props.getProperty("condition_columns").split(",").map(_.trim)
     if (!conditionColumns.forall(rddSchema.fieldNames.contains(_))) {
       throw new IllegalArgumentException(
-        "Condition columns specified should be a subset of the schema in the input dataset.")
+        "Condition columns specified should be a subset of the schema in the input dataset.\n" +
+          s"schema: ${rddSchema.fieldNames.mkString(", ")}\n" +
+          s"condition_columns: ${conditionColumns.mkString(", ")}")
     }
-    val sourceColumns = rddSchema.fields.map { x => s"${x.name}"}.mkString(", ")
-    val onClause = conditionColumns.map { c => s"T.$c= S.$c" }.mkString(" AND ")
+    val sourceColumns = rddSchema.fields.map(_.name).mkString(", ")
+    val onClause = conditionColumns.map(c => s"T.$c= S.$c").mkString(" AND ")
     val updateClause = rddSchema.fields.map(_.name).filterNot(conditionColumns.contains(_)).
-      map { x => s"T.$x = S.$x" }.mkString(", ")
+      map(c => s"T.$c = S.$c").mkString(", ")
 
-    val insertColumns = rddSchema.fields.map { x => s"T.${x.name}"}.mkString(", ")
-    val insertValues = rddSchema.fields.map { x => s"S.${x.name}" }.mkString(", ")
+    val insertColumns = rddSchema.fields.map(c => s"T.${c.name}").mkString(", ")
+    val insertValues = rddSchema.fields.map(c => s"S.${c.name}").mkString(", ")
     val placeholders = rddSchema.fields.map(_ => "?").mkString(",")
 
-    // In the case where condition columns are whole set of the rddSchema columns
+    // In the case where condition columns are the whole set of the rddSchema columns
     // and rddSchema columns may be a subset of the target table schema.
     // We need to do nothing for matched rows
     val sql = if (updateClause != null && updateClause.nonEmpty) {
       s"""
          |MERGE INTO $table AS T
-         |USING TABLE(VALUES ( $placeholders )) AS S ($sourceColumns)
+         |USING TABLE (VALUES ($placeholders)) AS S ($sourceColumns)
          |ON ($onClause)
          |WHEN MATCHED THEN UPDATE SET $updateClause
          |WHEN NOT MATCHED THEN INSERT ($insertColumns)
@@ -76,7 +75,7 @@ private object DB2Dialect extends JdbcDialect {
     } else {
       s"""
          |MERGE INTO $table AS T
-         |USING TABLE(VALUES ( $placeholders )) AS S ($sourceColumns)
+         |USING TABLE (VALUES ($placeholders)) AS S ($sourceColumns)
          |ON ($onClause)
          |WHEN NOT MATCHED THEN INSERT ($insertColumns)
          |VALUES($insertValues)

@@ -110,7 +110,7 @@ class JdbcRelationProvider extends CreatableRelationProvider
           statement.close()
         }
       }
-      if (doSave) JdbcUtils.saveTable(data, url, table, props)
+      if (doSave) JdbcUtils.saveTable(data, url, table, mode, props)
     } finally {
       conn.close()
     }
