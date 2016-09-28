@@ -47,14 +47,18 @@ private object DB2Dialect extends JdbcDialect {
 
     if (!conditionColumns.forall(rddSchema.fieldNames.contains(_))) {
       throw new IllegalArgumentException(
-        "Condition columns specified should be a subset of the schema in the input dataset.\n" +
-          s"schema: ${rddSchema.fieldNames.mkString(", ")}\n" +
-          s"condition_columns: ${conditionColumns.mkString(", ")}")
+        s"""
+           |Condition columns specified should be a subset of the schema in the input dataset.
+           |schema: ${rddSchema.fieldNames.mkString(", ")}
+           |condition_columns: ${conditionColumns.mkString(", ")}
+        """.stripMargin)
     }
     val sourceColumns = rddSchema.fields.map(_.name).mkString(", ")
     val onClause = conditionColumns.map(c => s"T.$c= S.$c").mkString(" AND ")
-    val updateClause = rddSchema.fields.map(_.name).filterNot(conditionColumns.contains(_)).
-      map(c => s"T.$c = S.$c").mkString(", ")
+
+    // updates only apply to columns that are not for matching
+    val updateClause = rddSchema.fields.map(_.name)
+      .filterNot(conditionColumns.contains(_)).map(c => s"T.$c = S.$c").mkString(", ")
 
     val insertColumns = rddSchema.fields.map(c => s"T.${c.name}").mkString(", ")
     val insertValues = rddSchema.fields.map(c => s"S.${c.name}").mkString(", ")

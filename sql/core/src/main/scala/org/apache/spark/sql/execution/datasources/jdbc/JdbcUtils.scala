@@ -700,11 +700,12 @@ object JdbcUtils extends Logging {
         case "REPEATABLE_READ" => Connection.TRANSACTION_REPEATABLE_READ
         case "SERIALIZABLE" => Connection.TRANSACTION_SERIALIZABLE
       }
-    val upsert = (mode == SaveMode.Append) && properties.getProperty("upsert", "false") == "true"
+    // upsert option is only applicable to Append mode.
+    val isUpsert = (mode == SaveMode.Append) && properties.getProperty("upsert", "false") == "true"
     val conditionColumns = properties.getProperty("condition_columns", "").split(",").map(_.trim)
     df.foreachPartition(iterator => savePartition(
       getConnection, table, iterator, rddSchema, nullTypes, batchSize,
-      dialect, isolationLevel, upsert, conditionColumns)
+      dialect, isolationLevel, isUpsert, conditionColumns)
     )
   }
 }

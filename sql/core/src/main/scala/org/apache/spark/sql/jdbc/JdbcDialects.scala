@@ -121,6 +121,8 @@ abstract class JdbcDialect extends Serializable {
    * @param conn The connection object
    * @param table The target table
    * @param rddSchema The schema for the table
+   * @param conditionColumns The column(s) on which duplicate rows are identified.
+   *                         Some database systems may not require this.
    * @return PreparedStatement
    */
   def upsertStatement(

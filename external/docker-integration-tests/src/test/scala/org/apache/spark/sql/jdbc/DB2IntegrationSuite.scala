@@ -21,12 +21,12 @@ import java.math.BigDecimal
 import java.sql.{Connection, Date, Timestamp}
 import java.util.Properties
 
-import org.scalatest._
-
+import org.apache.spark.sql.SaveMode
 import org.apache.spark.tags.DockerTest
 
 @DockerTest
 class DB2IntegrationSuite extends DockerJDBCIntegrationSuite {
+  import testImplicits._
   override val db = new DatabaseOnDocker {
     override val imageName = "lresende/db2express-c:10.5.0.5-3.10.0"
     override val env = Map(
@@ -136,31 +136,32 @@ class DB2IntegrationSuite extends DockerJDBCIntegrationSuite {
     df3.write.jdbc(jdbcUrl, "stringscopy", new Properties)
   }
 
-  test("Upsert test") {
-    import testImplicits._
-
+  test("Upsert test -- matching one column") {
     // update Row(1, 2, 3) to (1, 3, 6) and insert new Row(4, 5, 6)
     val df1 = Seq((1, 3, 6), (4, 5, 6)).toDF("c1", "c2", "c3")
-    df1.write.mode(org.apache.spark.sql.SaveMode.Append)
+    df1.write.mode(SaveMode.Append)
       .option("upsert", true).option("condition_columns", "c1")
       .jdbc(jdbcUrl, "upsertT", new Properties)
     val df11 = spark.read.jdbc(jdbcUrl, "upsertT", new Properties())
     assert(df11.filter("c1=1").collect.head.getInt(1) == 3)
     assert(df11.filter("c1=1").collect.head.getInt(2) == 6)
     assert(df11.filter("c1=4").collect.size == 1)
+  }
 
+  test("Upsert test -- matching two columns") {
     // update Row(2, 3, 4) to Row(2, 3, 10) that matches 2 columns
     val df2 = Seq((2, 3, 10)).toDF("c1", "c2", "c3")
-    df2.write.mode(org.apache.spark.sql.SaveMode.Append)
+    df2.write.mode(SaveMode.Append)
       .option("upsert", true).option("condition_columns", "c1, c2")
       .jdbc(jdbcUrl, "upsertT", new Properties)
     val df21 = spark.read.jdbc(jdbcUrl, "upsertT", new Properties())
     assert(df21.filter("c1=2").collect.head.getInt(2) == 10)
-
+  }
+  test("Upsert test -- matching all columns") {
     // condition columns are the whole set of the rddSchema columns
     // Row (2, 3, 10) will be no-op, new Row(10, 10, null) will be inserted
     val df3 = Seq((2, 3), (10, 10)).toDF("c1", "c2")
-    df3.write.mode(org.apache.spark.sql.SaveMode.Append)
+    df3.write.mode(SaveMode.Append)
       .option("upsert", true).option("condition_columns", "c1, c2")
       .jdbc(jdbcUrl, "upsertT", new Properties)
 
