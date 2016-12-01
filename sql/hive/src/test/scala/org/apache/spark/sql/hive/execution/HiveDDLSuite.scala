@@ -32,6 +32,7 @@ import org.apache.spark.sql.hive.test.TestHiveSingleton
 import org.apache.spark.sql.internal.SQLConf
 import org.apache.spark.sql.internal.StaticSQLConf.CATALOG_IMPLEMENTATION
 import org.apache.spark.sql.test.SQLTestUtils
+import org.apache.spark.sql.types.{IntegerType, StructField}
 
 class HiveDDLSuite
   extends QueryTest with SQLTestUtils with TestHiveSingleton with BeforeAndAfterEach {
@@ -1196,6 +1197,63 @@ class HiveDDLSuite
         sql("TRUNCATE TABLE partTable PARTITION (unknown=1)")
       }
       assert(e.message.contains("unknown is not a valid partition column"))
+    }
+  }
+
+  test("alter table add columns -- partitioned") {
+    val tableTypes = Seq("PARQUET", "ORC", "TEXTFILE", "SEQUENCEFILE", "RCFILE", "AVRO")
+    tableTypes.foreach{ tableType =>
+      withTable("alter_add_partitioned") {
+        sql(
+          s"""
+            |CREATE TABLE alter_add_partitioned (c1 int, c2 int)
+            |PARTITIONED BY (c3 int) STORED AS $tableType
+          """.stripMargin)
+
+        sql("INSERT INTO alter_add_partitioned PARTITION (c3=1) VALUES (1, 2)")
+        sql("ALTER TABLE alter_add_partitioned ADD COLUMNS (c4 int)")
+        checkAnswer(
+          sql("SELECT * FROM alter_add_partitioned WHERE c3 = 1"),
+          Seq(Row(1, 2, null, 1))
+        )
+        assert(sql("SELECT * FROM alter_add_partitioned").schema
+          .contains(StructField("c4", IntegerType)))
+        sql("INSERT INTO alter_add_partitioned PARTITION (c3=2) VALUES (2, 3, 4)")
+        checkAnswer(
+          sql("SELECT * FROM alter_add_partitioned"),
+          Seq(Row(1, 2, null, 1), Row(2, 3, 4, 2))
+        )
+        checkAnswer(
+          sql("SELECT * FROM alter_add_partitioned WHERE c3 = 2 AND c4 IS NOT NULL"),
+          Seq(Row(2, 3, 4, 2))
+        )
+      }
+    }
+  }
+
+  test("alter table add columns -- with predicate") {
+    val tableTypes = Seq("PARQUET", "ORC", "TEXTFILE", "SEQUENCEFILE", "RCFILE", "AVRO")
+    tableTypes.foreach { tableType =>
+      withTable("alter_add_predicate") {
+        sql(s"CREATE TABLE alter_add_predicate (c1 int, c2 int) STORED AS $tableType")
+        sql("INSERT INTO alter_add_predicate VALUES (1, 2)")
+        sql("ALTER TABLE alter_add_predicate ADD COLUMNS (c4 int)")
+        checkAnswer(
+          sql("SELECT * FROM alter_add_predicate WHERE c4 IS NULL"),
+          Seq(Row(1, 2, null))
+        )
+        assert(sql("SELECT * FROM alter_add_predicate").schema
+          .contains(StructField("c4", IntegerType)))
+        sql("INSERT INTO alter_add_predicate VALUES (2, 3, 4)")
+        checkAnswer(
+          sql("SELECT * FROM alter_add_predicate WHERE c4 = 4 "),
+          Seq(Row(2, 3, 4))
+        )
+        checkAnswer(
+          sql("SELECT * FROM alter_add_predicate"),
+          Seq(Row(1, 2, null), Row(2, 3, 4))
+        )
+      }
     }
   }
 }
