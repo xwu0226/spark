@@ -46,7 +46,6 @@ import org.apache.spark.sql.internal.HiveSerDe
 import org.apache.spark.sql.internal.StaticSQLConf._
 import org.apache.spark.sql.types.{DataType, StructType}
 
-
 /**
  * A persistent implementation of the system catalog using Hive.
  * All public methods must be synchronized for thread-safety.
@@ -404,7 +403,7 @@ private[spark] class HiveExternalCatalog(conf: SparkConf, hadoopConf: Configurat
       }
     }
 
-    properties.toMap
+    properties
   }
 
   private def defaultTablePath(tableIdent: TableIdentifier): String = {
@@ -605,7 +604,7 @@ private[spark] class HiveExternalCatalog(conf: SparkConf, hadoopConf: Configurat
         schema = tableSchema,
         partitionColumnNames = oldTableDef.partitionColumnNames,
         bucketSpec = oldTableDef.bucketSpec,
-        properties = newTableProps)
+        properties = newTableProps.toMap)
 
       client.alterTable(newDef)
     }
