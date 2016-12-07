@@ -21,6 +21,7 @@ import java.io.File
 
 import org.apache.hadoop.fs.Path
 import org.scalatest.BeforeAndAfterEach
+
 import org.apache.spark.sql.{AnalysisException, QueryTest, Row, SaveMode}
 import org.apache.spark.sql.catalyst.analysis.{NoSuchPartitionException, TableAlreadyExistsException}
 import org.apache.spark.sql.catalyst.catalog.{CatalogDatabase, CatalogTable, CatalogTableType}
@@ -1276,7 +1277,7 @@ class HiveDDLSuite
     }
   }
 
-  test("alter table add columns -- not datasource table") {
+  test("alter table add columns -- not support datasource table") {
     withTempDir { dir =>
       withTable("t_ds") {
         sql(s"create table t_ds (c1 int, c2 int) using parquet options(path '$dir')")
@@ -1284,33 +1285,6 @@ class HiveDDLSuite
           sql("alter table t_ds add columns (c3 int)")
         }
         assert(e.message.contains("datasource table, which does not support ALTER ADD COLUMNS yet"))
-      }
-    }
-  }
-
-  test("dfd") {
-    Seq("parquet").foreach { format =>
-
-      withTempPath { path =>
-        Seq((1, "abc"), (2, "hello")).toDF("a", "b").write.format(format).save(path.toString)
-
-        // user-specified schema contains nonexistent columns
-        val schema = StructType(
-          Seq(StructField("a", IntegerType),
-            StructField("b", StringType),
-            StructField("c", IntegerType)))
-        val readDf = spark.read.schema(schema).format(format).load(path.toString)
-
-        // Read the table without any filter
-        checkAnswer(readDf, Row(1, "abc", null) :: Row(2, "hello", null) :: Nil)
-        // Read the table with a filter on existing columns
-        checkAnswer(readDf.filter("a < 2"), Row(1, "abc", null) :: Nil)
-
-        // Read the table with a filter on nonexistent columns
-        readDf.filter("c < 2").show()
-        readDf.filter("c is null").show()
-        readDf.filter("c is not null").show()
-
       }
     }
   }
