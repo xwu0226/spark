@@ -176,7 +176,74 @@ case class AlterTableRenameCommand(
     }
     Seq.empty[Row]
   }
+}
 
+/**
+ * A command that replace columns to a table
+ * The syntax of using this command in SQL is:
+ * {{{
+ *   ALTER TABLE table_identifier
+ *   REPLACE COLUMNS (col_name data_type [COMMENT col_comment], ...);
+ * }}}
+ */
+case class AlterTableReplaceColumnsCommand(
+    table: TableIdentifier,
+    columns: Seq[StructField]) extends RunnableCommand {
+  override def run(sparkSession: SparkSession): Seq[Row] = {
+    val catalog = sparkSession.sessionState.catalog
+    val catalogTable = verifyAlterTableReplaceColumn(catalog, table)
+    try {
+      sparkSession.catalog.uncacheTable(table.quotedString)
+    } catch {
+      case NonFatal(e) =>
+        log.warn(s"Exception when attempting to uncache table ${table.quotedString}", e)
+    }
+    catalog.refreshTable(table)
+    // make sure any partition columns are at the end of the fields
+    val reorderedSchema = columns ++ catalogTable.partitionSchema
+    catalog.alterTableSchema(
+      table, catalogTable.schema.copy(fields = reorderedSchema.toArray))
+
+    Seq.empty[Row]
+  }
+
+  /**
+   * ALTER TABLE ADD COLUMNS command does not support temporary view/table,
+   * view, or datasource table with text, orc formats or external provider.
+   * For datasource table, it currently only supports parquet, json, csv.
+   */
+  private def verifyAlterTableReplaceColumn(
+      catalog: SessionCatalog,
+      table: TableIdentifier): CatalogTable = {
+    val catalogTable = catalog.getTempViewOrPermanentTableMetadata(table)
+
+    if (catalogTable.tableType == CatalogTableType.VIEW) {
+      throw new AnalysisException(
+        s"""
+           |ALTER TABLE REPLACE COLUMNS does not support views.
+           |You must drop and re-create the views for adding the new columns. Views: $table
+         """.stripMargin)
+    }
+
+    if (DDLUtils.isDatasourceTable(catalogTable)) {
+      DataSource.lookupDataSource(catalogTable.provider.get).newInstance() match {
+        // For datasource table, this command can only support the following File format.
+        // TextFileFormat only default to one column "value"
+        // OrcFileFormat can not handle difference between user-specified schema and
+        // inferred schema yet. TODO, once this issue is resolved , we can add Orc back.
+        // Hive type is already considered as hive serde table, so the logic will not
+        // come in here.
+        case _: JsonFileFormat | _: CSVFileFormat | _: ParquetFileFormat =>
+        case s =>
+          throw new AnalysisException(
+            s"""
+               |ALTER TABLE REPLACE does not support datasource table with type $s.
+               |You must drop and re-create the table for adding the new columns. Tables: $table
+             """.stripMargin)
+      }
+    }
+    catalogTable
+  }
 }
 
 /**
