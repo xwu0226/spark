@@ -238,7 +238,24 @@ case class AlterTableReplaceColumnsCommand(
           throw new AnalysisException(
             s"""
                |ALTER TABLE REPLACE does not support datasource table with type $s.
-               |You must drop and re-create the table for adding the new columns. Tables: $table
+               |You must drop and re-create the table for adding the new columns.
+             """.stripMargin)
+      }
+    } else {
+      // For hive serde tables, we need to exclude the serde
+      // that is not compatiable with REPLACE COLUMNS defined by Hive
+      val serde = catalogTable.storage.serde.get
+      val supportedSerdes = Seq(
+        "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe",
+        "org.apache.hadoop.hive.serde2.columnar.ColumnarSerDe",
+        "org.apache.hadoop.hive.serde2.dynamic_type.DynamicSerDe",
+        "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe",
+        "org.apache.hadoop.hive.serde2.MetadataTypedColumnsetSerDe")
+      if (!supportedSerdes.contains(serde)) {
+        throw new AnalysisException(
+          s"""
+             |ALTER TABLE REPLACE does not support Hive Serde table with SerDe $serde.
+             |You must drop and re-create the table for adding the new columns.
              """.stripMargin)
       }
     }
