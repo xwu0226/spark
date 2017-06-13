@@ -208,7 +208,7 @@ case class AlterTableReplaceColumnsCommand(
   }
 
   /**
-   * ALTER TABLE ADD COLUMNS command does not support temporary view/table,
+   * ALTER TABLE REPLACE COLUMNS command does not support temporary view/table,
    * view, or datasource table with text, orc formats or external provider.
    * For datasource table, it currently only supports parquet, json, csv.
    */
