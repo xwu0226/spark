@@ -191,7 +191,7 @@ case class AlterTableReplaceColumnsCommand(
     columns: Seq[StructField]) extends RunnableCommand {
   override def run(sparkSession: SparkSession): Seq[Row] = {
     val catalog = sparkSession.sessionState.catalog
-    val catalogTable = verifyAlterTableReplaceColumn(catalog, table)
+    val catalogTable = verifyAlterTableReplaceColumn(catalog, table, columns)
     try {
       sparkSession.catalog.uncacheTable(table.quotedString)
     } catch {
@@ -214,7 +214,8 @@ case class AlterTableReplaceColumnsCommand(
    */
   private def verifyAlterTableReplaceColumn(
       catalog: SessionCatalog,
-      table: TableIdentifier): CatalogTable = {
+      table: TableIdentifier,
+      newColumns: Seq[StructField]): CatalogTable = {
     val catalogTable = catalog.getTempViewOrPermanentTableMetadata(table)
 
     if (catalogTable.tableType == CatalogTableType.VIEW) {
@@ -238,7 +239,6 @@ case class AlterTableReplaceColumnsCommand(
           throw new AnalysisException(
             s"""
                |ALTER TABLE REPLACE does not support datasource table with type $s.
-               |You must drop and re-create the table for adding the new columns.
              """.stripMargin)
       }
     } else {
@@ -248,8 +248,11 @@ case class AlterTableReplaceColumnsCommand(
       val supportedSerdes = Seq(
         "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe",
         "org.apache.hadoop.hive.serde2.columnar.ColumnarSerDe",
+        "org.apache.hadoop.hive.serde2.columnar.LazyBinaryColumnarSerDe",
         "org.apache.hadoop.hive.serde2.dynamic_type.DynamicSerDe",
         "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe",
+        "org.apache.hadoop.hive.ql.io.orc.OrcSerde",
+        "org.apache.hadoop.hive.serde2.avro.AvroSerDe",
         "org.apache.hadoop.hive.serde2.MetadataTypedColumnsetSerDe")
       if (!supportedSerdes.contains(serde)) {
         throw new AnalysisException(
@@ -257,6 +260,15 @@ case class AlterTableReplaceColumnsCommand(
              |ALTER TABLE REPLACE does not support Hive Serde table with SerDe $serde.
              |You must drop and re-create the table for adding the new columns.
              """.stripMargin)
+      }
+
+      if (serde == "org.apache.hadoop.hive.ql.io.orc.OrcSerde") {
+        if (newColumns.size < catalogTable.schema.size) {
+          throw new AnalysisException(
+            s"""
+               |ALTER TABLE REPLACE does not support dropping columns for table with SerDe $serde.
+             """.stripMargin)
+        }
       }
     }
     catalogTable

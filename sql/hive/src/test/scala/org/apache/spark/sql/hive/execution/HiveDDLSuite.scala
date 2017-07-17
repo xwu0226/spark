@@ -2188,6 +2188,85 @@ class HiveDDLSuite
     }
   }
 
+  hiveFormats.foreach { tableType =>
+    test(s"alter hive serde table replace columns -- with predicate - $tableType ") {
+      withTable("tab") {
+        sql(s"CREATE TABLE tab (c1 int, c2 int) STORED AS $tableType")
+        sql("INSERT INTO tab VALUES (1, 2)")
+        // replace to add a column
+        sql("ALTER TABLE tab REPLACE COLUMNS (c1 int, c2 int, c4 int)")
+        checkAnswer(
+          sql("SELECT * FROM tab WHERE c4 IS NULL"),
+          Seq(Row(1, 2, null))
+        )
+        assert(spark.table("tab").schema
+          .contains(StructField("c4", IntegerType)))
+        sql("INSERT INTO tab VALUES (2, 3, 4)")
+        checkAnswer(
+          sql("SELECT * FROM tab WHERE c4 = 4 "),
+          Seq(Row(2, 3, 4))
+        )
+        checkAnswer(
+          spark.table("tab"),
+          Seq(Row(1, 2, null), Row(2, 3, 4))
+        )
+      }
+    }
+  }
+
+  hiveFormats.foreach { tableType =>
+    test(s"alter hive serde table replace columns -- partitioned - $tableType") {
+      withTable("tab") {
+        sql(
+          s"""
+             |CREATE TABLE tab (c1 int, c2 int)
+             |PARTITIONED BY (c3 int) STORED AS $tableType
+          """.stripMargin)
+
+        sql("INSERT INTO tab PARTITION (c3=10) VALUES (1, 2)")
+        if (tableType == "ORC") {
+          val e1 = intercept[AnalysisException] {
+            sql("ALTER TABLE tab REPLACE COLUMNS (c1 int)")
+          }.getMessage
+          assert(e1.contains("ALTER TABLE REPLACE does not support dropping columns"))
+        } else {
+          sql("ALTER TABLE tab REPLACE COLUMNS (c1 int)")
+          checkAnswer(
+            sql("SELECT * FROM tab"),
+            Seq(Row(1, 10))
+          )
+        }
+      }
+    }
+  }
+
+  hiveFormats.foreach { tableType =>
+    test(s"alter hive serde table replace to drop column - $tableType ") {
+      withTable("tab") {
+        sql(s"CREATE TABLE tab (c1 int, c2 int) STORED AS $tableType")
+        sql("INSERT INTO tab VALUES (1, 2)")
+        // replace to add a column
+        if (tableType == "ORC") {
+          val e1 = intercept[AnalysisException] {
+            sql("ALTER TABLE tab REPLACE COLUMNS (c1 int)")
+          }.getMessage
+          assert(e1.contains("ALTER TABLE REPLACE does not support dropping columns"))
+        } else {
+          sql("ALTER TABLE tab REPLACE COLUMNS (c1 int)")
+          checkAnswer(
+            sql("SELECT * FROM tab"),
+            Seq(Row(1))
+          )
+          sql("INSERT INTO tab VALUES (2)")
+          checkAnswer(
+            spark.table("tab"),
+            Seq(Row(1), Row(2))
+          )
+        }
+      }
+    }
+  }
+
   Seq(true, false).foreach { caseSensitive =>
     test(s"alter add columns with existing column name - caseSensitive $caseSensitive") {
       withSQLConf(SQLConf.CASE_SENSITIVE.key -> s"$caseSensitive") {
