@@ -234,7 +234,7 @@ case class AlterTableReplaceColumnsCommand(
         // inferred schema yet. TODO, once this issue is resolved , we can add Orc back.
         // Hive type is already considered as hive serde table, so the logic will not
         // come in here.
-        case _: JsonFileFormat | _: CSVFileFormat | _: ParquetFileFormat =>
+        case _: JsonFileFormat | _: ParquetFileFormat =>
         case s =>
           throw new AnalysisException(
             s"""

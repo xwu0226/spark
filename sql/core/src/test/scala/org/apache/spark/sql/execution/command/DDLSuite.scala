@@ -2519,6 +2519,7 @@ abstract class DDLSuite extends QueryTest with SQLTestUtils {
   }
 
   val supportedNativeFileFormatsForAlterTableAddColumns = Seq("parquet", "json", "csv")
+  val supportedNativeFileFormatsForAlterTableReplaceColumns = Seq("parquet", "json")
   val alterTypes = Seq("ADD", "REPLACE")
 
   alterTypes.foreach { alterType =>
@@ -2584,7 +2585,32 @@ abstract class DDLSuite extends QueryTest with SQLTestUtils {
     }
   }
 
-  supportedNativeFileFormatsForAlterTableAddColumns.foreach { provider =>
+  supportedNativeFileFormatsForAlterTableReplaceColumns.foreach { provider =>
+    test(s"alter datasource table Replace columns to add in the middle - $provider") {
+      withTable("t1") {
+        sql(s"CREATE TABLE t1 (c1 int, c2 int) USING $provider")
+        sql("INSERT INTO t1 VALUES (1, 2)")
+
+        sql("ALTER TABLE t1 REPLACE COLUMNS (c1 int, c3 int, c2 int)")
+
+        checkAnswer(
+          spark.table("t1"),
+          Seq(Row(1, null, 2))
+        )
+        checkAnswer(
+          sql("SELECT * FROM t1 WHERE c3 is null"),
+          Seq(Row(1, null, 2))
+        )
+        sql("INSERT INTO t1 VALUES (3, 2, 3)")
+        checkAnswer(
+          sql("SELECT * FROM t1 WHERE c3 = 2"),
+          Seq(Row(3, 2, 3))
+        )
+      }
+    }
+  }
+
+  supportedNativeFileFormatsForAlterTableReplaceColumns.foreach { provider =>
     test(s"alter datasource table replace to drop columns - partitioned $provider") {
       withTable("t1") {
         sql(s"CREATE TABLE t1 (c1 int, c2 int, c3 int) USING $provider PARTITIONED BY (c2)")
@@ -2600,7 +2626,7 @@ abstract class DDLSuite extends QueryTest with SQLTestUtils {
     }
   }
 
-  supportedNativeFileFormatsForAlterTableAddColumns.foreach { provider =>
+  supportedNativeFileFormatsForAlterTableReplaceColumns.foreach { provider =>
     test(s"alter datasource table replace to change order - partitioned $provider") {
       withTable("t1") {
         sql(s"CREATE TABLE t1 (c1 int, c2 int, c3 int) USING $provider PARTITIONED BY (c3)")
