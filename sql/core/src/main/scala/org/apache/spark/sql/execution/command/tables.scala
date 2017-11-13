@@ -201,7 +201,7 @@ case class AlterTableReplaceColumnsCommand(
     catalog.refreshTable(table)
     // make sure any partition columns are at the end of the fields
     val reorderedSchema = columns ++ catalogTable.partitionSchema
-    catalog.alterTableSchema(
+    catalog.alterTableDataSchema(
       table, catalogTable.schema.copy(fields = reorderedSchema.toArray))
 
     Seq.empty[Row]
