@@ -191,7 +191,8 @@ case class AlterTableReplaceColumnsCommand(
     columns: Seq[StructField]) extends RunnableCommand {
   override def run(sparkSession: SparkSession): Seq[Row] = {
     val catalog = sparkSession.sessionState.catalog
-    val catalogTable = verifyAlterTableReplaceColumn(catalog, table, columns)
+    val catalogTable = verifyAlterTableReplaceColumn(
+      sparkSession.sessionState.conf, catalog, table, columns)
     try {
       sparkSession.catalog.uncacheTable(table.quotedString)
     } catch {
@@ -213,6 +214,7 @@ case class AlterTableReplaceColumnsCommand(
    * For datasource table, it currently only supports parquet, json, csv.
    */
   private def verifyAlterTableReplaceColumn(
+      conf: SQLConf,
       catalog: SessionCatalog,
       table: TableIdentifier,
       newColumns: Seq[StructField]): CatalogTable = {
@@ -227,14 +229,14 @@ case class AlterTableReplaceColumnsCommand(
     }
 
     if (DDLUtils.isDatasourceTable(catalogTable)) {
-      DataSource.lookupDataSource(catalogTable.provider.get).newInstance() match {
+      DataSource.lookupDataSource(catalogTable.provider.get, conf).newInstance() match {
         // For datasource table, this command can only support the following File format.
         // TextFileFormat only default to one column "value"
         // OrcFileFormat can not handle difference between user-specified schema and
         // inferred schema yet. TODO, once this issue is resolved , we can add Orc back.
         // Hive type is already considered as hive serde table, so the logic will not
         // come in here.
-        case _: JsonFileFormat | _: ParquetFileFormat =>
+        case _: JsonFileFormat | _: ParquetFileFormat | _: CSVFileFormat =>
         case s =>
           throw new AnalysisException(
             s"""
